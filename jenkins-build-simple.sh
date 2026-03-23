@@ -38,27 +38,79 @@ chmod +x gradlew
 if [ -z "$JAVA_HOME" ]; then
     echo "⚠️  JAVA_HOME not set, trying to detect Java..."
     
-    # Common Java locations
-    for java_path in \
-        "/usr/lib/jvm/java-17-openjdk-amd64" \
-        "/usr/lib/jvm/java-17-openjdk" \
-        "/usr/lib/jvm/temurin-17-jdk" \
-        "/opt/java/openjdk" \
-        "/usr/lib/jvm/default-java" \
-        "/Library/Java/JavaVirtualMachines/temurin-17.jdk/Contents/Home" \
-        "/System/Library/Frameworks/JavaVM.framework/Versions/Current"; do
-        
-        if [ -d "$java_path" ] && [ -x "$java_path/bin/java" ]; then
-            export JAVA_HOME="$java_path"
+    # Try to use java_home command on macOS first
+    if command -v /usr/libexec/java_home >/dev/null 2>&1; then
+        echo "Detected macOS, using java_home command..."
+        if DETECTED_JAVA_HOME=$(/usr/libexec/java_home -v 17 2>/dev/null); then
+            export JAVA_HOME="$DETECTED_JAVA_HOME"
+            export PATH="$JAVA_HOME/bin:$PATH"
+            echo "✅ Found Java 17 at: $JAVA_HOME"
+        elif DETECTED_JAVA_HOME=$(/usr/libexec/java_home 2>/dev/null); then
+            export JAVA_HOME="$DETECTED_JAVA_HOME"
             export PATH="$JAVA_HOME/bin:$PATH"
             echo "✅ Found Java at: $JAVA_HOME"
-            break
         fi
-    done
+    fi
+    
+    # If still not found, try common locations
+    if [ -z "$JAVA_HOME" ]; then
+        echo "Trying common Java installation paths..."
+        for java_path in \
+            "/Library/Java/JavaVirtualMachines/temurin-17.jdk/Contents/Home" \
+            "/Library/Java/JavaVirtualMachines/adoptopenjdk-17.jdk/Contents/Home" \
+            "/Library/Java/JavaVirtualMachines/openjdk-17.jdk/Contents/Home" \
+            "/Library/Java/JavaVirtualMachines/jdk-17.jdk/Contents/Home" \
+            "/usr/lib/jvm/java-17-openjdk-amd64" \
+            "/usr/lib/jvm/java-17-openjdk" \
+            "/usr/lib/jvm/temurin-17-jdk" \
+            "/opt/java/openjdk" \
+            "/usr/lib/jvm/default-java" \
+            "/System/Library/Frameworks/JavaVM.framework/Versions/Current"; do
+            
+            if [ -d "$java_path" ] && [ -x "$java_path/bin/java" ]; then
+                export JAVA_HOME="$java_path"
+                export PATH="$JAVA_HOME/bin:$PATH"
+                echo "✅ Found Java at: $JAVA_HOME"
+                break
+            fi
+        done
+    fi
+    
+    # If still not found, try to find any Java
+    if [ -z "$JAVA_HOME" ]; then
+        echo "Trying to find any available Java..."
+        if command -v java >/dev/null 2>&1; then
+            # Get Java home from java command
+            JAVA_CMD=$(which java)
+            # Follow symlinks to find actual java location
+            if command -v readlink >/dev/null 2>&1; then
+                REAL_JAVA=$(readlink -f "$JAVA_CMD" 2>/dev/null || echo "$JAVA_CMD")
+            else
+                REAL_JAVA="$JAVA_CMD"
+            fi
+            # Extract JAVA_HOME (remove /bin/java)
+            DETECTED_JAVA_HOME=$(dirname $(dirname "$REAL_JAVA"))
+            if [ -d "$DETECTED_JAVA_HOME" ] && [ -x "$DETECTED_JAVA_HOME/bin/java" ]; then
+                export JAVA_HOME="$DETECTED_JAVA_HOME"
+                export PATH="$JAVA_HOME/bin:$PATH"
+                echo "✅ Found Java at: $JAVA_HOME"
+            fi
+        fi
+    fi
     
     if [ -z "$JAVA_HOME" ]; then
         echo "❌ Could not find Java installation"
-        echo "Please set JAVA_HOME or install Java 17"
+        echo ""
+        echo "Available Java installations on this system:"
+        if command -v /usr/libexec/java_home >/dev/null 2>&1; then
+            /usr/libexec/java_home -V 2>&1 || echo "No Java installations found via java_home"
+        fi
+        
+        echo ""
+        echo "Please either:"
+        echo "1. Install Java 17: brew install openjdk@17"
+        echo "2. Set JAVA_HOME in Jenkins job configuration"
+        echo "3. Configure JDK in Jenkins Global Tool Configuration"
         exit 1
     fi
 fi
