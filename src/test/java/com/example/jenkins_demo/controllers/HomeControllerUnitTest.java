@@ -20,7 +20,7 @@ class HomeControllerUnitTest {
         String result = homeController.health();
 
         // Then
-        assertThat(result).isEqualTo("The service is up and running..");
+        assertThat(result).isEqualTo("The service is up and running..!!");
     }
 
     @Test
