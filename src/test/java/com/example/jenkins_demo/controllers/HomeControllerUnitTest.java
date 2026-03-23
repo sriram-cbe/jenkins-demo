@@ -51,6 +51,6 @@ class HomeControllerUnitTest {
         // Then
         assertThat(result1).isEqualTo(result2);
         assertThat(result2).isEqualTo(result3);
-        assertThat(result1).isEqualTo("The service is up and running..");
+        assertThat(result1).isEqualTo("The service is up and running..!!");
     }
 }
