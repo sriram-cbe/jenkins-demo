@@ -8,19 +8,33 @@ set -e  # Exit on any error
 echo "=== Jenkins Build Started ==="
 echo "Timestamp: $(date)"
 
-# Function to run commands with timeout
+# Function to run commands with timeout (macOS compatible)
 run_with_timeout() {
     local timeout_duration=$1
     shift
     local cmd="$@"
     
     echo "Running: $cmd"
-    if timeout "$timeout_duration" bash -c "$cmd"; then
-        echo "✅ Command completed successfully"
-        return 0
+    
+    # Check if timeout command exists (Linux)
+    if command -v timeout >/dev/null 2>&1; then
+        if timeout "$timeout_duration" bash -c "$cmd"; then
+            echo "✅ Command completed successfully"
+            return 0
+        else
+            echo "❌ Command failed or timed out after ${timeout_duration}s"
+            return 1
+        fi
     else
-        echo "❌ Command failed or timed out after ${timeout_duration}s"
-        return 1
+        # macOS fallback - no timeout, just run the command
+        echo "(Running without timeout on macOS)"
+        if bash -c "$cmd"; then
+            echo "✅ Command completed successfully"
+            return 0
+        else
+            echo "❌ Command failed"
+            return 1
+        fi
     fi
 }
 
@@ -82,18 +96,39 @@ if [ -z "$JAVA_HOME" ]; then
         if command -v java >/dev/null 2>&1; then
             # Get Java home from java command
             JAVA_CMD=$(which java)
-            # Follow symlinks to find actual java location
-            if command -v readlink >/dev/null 2>&1; then
-                REAL_JAVA=$(readlink -f "$JAVA_CMD" 2>/dev/null || echo "$JAVA_CMD")
+            echo "Java command found at: $JAVA_CMD"
+            
+            # On macOS, java might be a wrapper, try to get real path
+            if [ -L "$JAVA_CMD" ]; then
+                # Follow symlinks
+                if command -v readlink >/dev/null 2>&1; then
+                    REAL_JAVA=$(readlink "$JAVA_CMD" 2>/dev/null || echo "$JAVA_CMD")
+                    echo "Symlink points to: $REAL_JAVA"
+                else
+                    REAL_JAVA="$JAVA_CMD"
+                fi
             else
                 REAL_JAVA="$JAVA_CMD"
             fi
+            
             # Extract JAVA_HOME (remove /bin/java)
             DETECTED_JAVA_HOME=$(dirname $(dirname "$REAL_JAVA"))
+            echo "Potential JAVA_HOME: $DETECTED_JAVA_HOME"
+            
+            # Validate the detected path
             if [ -d "$DETECTED_JAVA_HOME" ] && [ -x "$DETECTED_JAVA_HOME/bin/java" ]; then
                 export JAVA_HOME="$DETECTED_JAVA_HOME"
                 export PATH="$JAVA_HOME/bin:$PATH"
                 echo "✅ Found Java at: $JAVA_HOME"
+            else
+                echo "⚠️  Detected path doesn't contain valid Java installation"
+                # Try parent directory (sometimes needed on macOS)
+                PARENT_DIR=$(dirname "$DETECTED_JAVA_HOME")
+                if [ -d "$PARENT_DIR" ] && [ -x "$PARENT_DIR/bin/java" ]; then
+                    export JAVA_HOME="$PARENT_DIR"
+                    export PATH="$JAVA_HOME/bin:$PATH"
+                    echo "✅ Found Java at parent directory: $JAVA_HOME"
+                fi
             fi
         fi
     fi
