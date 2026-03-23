@@ -29,7 +29,7 @@ class HomeControllerTest {
         // When & Then
         mockMvc.perform(get("/home/health"))
                 .andExpect(status().isOk())
-                .andExpect(content().string("The service is up and running.."));
+                .andExpect(content().string("The service is up and running..!!"));
     }
 
     @Test
@@ -50,7 +50,7 @@ class HomeControllerTest {
         // When & Then
         mockMvc.perform(get("/home/health"))
                 .andExpect(status().isOk())
-                .andExpect(content().string("The service is up and running.."));
+                .andExpect(content().string("The service is up and running..!!"));
     }
 
     @Test
