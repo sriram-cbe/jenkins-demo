@@ -80,7 +80,28 @@ echo "======================="
 echo "JAVA_HOME: $JAVA_HOME"
 echo "PATH: $PATH"
 echo "Java Version:"
-java -version
+
+# Test java -version with timeout to prevent hanging
+if timeout 10 java -version 2>&1; then
+    print_success "Java version check completed"
+else
+    print_error "Java version check failed or timed out"
+    
+    # Try alternative approach
+    print_info "Attempting alternative Java detection..."
+    if [ -x "$JAVA_HOME/bin/java" ]; then
+        print_info "Java executable found at: $JAVA_HOME/bin/java"
+        if timeout 10 "$JAVA_HOME/bin/java" -version 2>&1; then
+            print_success "Alternative Java version check completed"
+        else
+            print_error "Java is not responding properly. Please check your Java installation."
+            exit 1
+        fi
+    else
+        print_error "Java executable not found or not executable"
+        exit 1
+    fi
+fi
 echo ""
 
 # Make gradlew executable
@@ -89,8 +110,10 @@ chmod +x gradlew
 
 # Display Gradle version
 print_info "Checking Gradle version..."
-if ! ./gradlew --version; then
-    print_warning "Gradle version check failed, but continuing with build..."
+if timeout 30 ./gradlew --version 2>&1; then
+    print_success "Gradle version check completed"
+else
+    print_warning "Gradle version check failed or timed out, but continuing with build..."
 fi
 
 # Clean previous builds
