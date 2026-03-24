@@ -1,153 +1,126 @@
 pipeline {
     agent any
-    
     tools {
-        // Define the JDK tool - make sure this matches your Jenkins Global Tool Configuration
-        jdk 'JDK17'  // Change this to match your Jenkins JDK configuration name
+        gradle 'gradle 9.4.1'
     }
-    
     environment {
-        // Ensure JAVA_HOME is set
-        JAVA_HOME = "${tool 'JDK17'}"
-        PATH = "${JAVA_HOME}/bin:${env.PATH}"
-        
-        // Gradle configuration
-        GRADLE_OPTS = '-Dorg.gradle.daemon=false'
+        DOCKER_IMAGE='jenkins-demo-app'
+        IMAGE_NAME='jenkins-demo'
+        MAJOR_VERSION = '1'
     }
-    
+    parameters {
+        choice(name : 'ENVIRONMENT', choices : ['dev','test'], description : 'Environments')
+    }
     stages {
-        stage('Checkout') {
+        stage('Generate Version') {
             steps {
-                echo 'Checking out source code...'
-                checkout scm
+                script {
+                    // Create or read version file
+                    def versionFile = 'version.txt'
+                    def patchVersion = 0
+
+                    if (fileExists(versionFile)) {
+                        patchVersion = readFile(versionFile).trim() as Integer
+                    }
+
+                    // Increment patch version
+                    patchVersion++
+
+                    // Write back to file
+                    writeFile file: versionFile, text: patchVersion.toString()
+
+                    env.VERSION = "${MAJOR_VERSION}.$BUILD_NUMBER"
+                    echo "Generated version: ${env.VERSION}"
+                }
             }
         }
-        
-        stage('Environment Info') {
+        stage('git clone') {
             steps {
-                echo 'Displaying environment information...'
+                git credentialsId: '46e7fd33-a896-4870-8d49-ff3dc22b8f65', url: 'https://github.com/sriram-cbe/jenkins-demo.git'            }
+        }
+        stage('Show path source') {
+            steps {
+                sh 'echo $PATH'
+            }
+        }
+
+        stage('gradle test') {
+            when {
+                expression {
+                    params.ENVIRONMENT == 'dev'
+                }
+            }
+            steps {
                 sh '''
-                    echo "JAVA_HOME: $JAVA_HOME"
-                    echo "PATH: $PATH"
-                    java -version
-                    ./gradlew --version
+                # Ensure Docker is in PATH
+export PATH="/usr/local/bin:/opt/homebrew/bin:$PATH"
+
+# Check if Docker is available
+if ! command -v docker >/dev/null 2>&1; then
+    echo "❌ Docker not found. Please install Docker or add it to PATH"
+    exit 1
+fi
+
+echo "✅ Docker found"
+echo "$VERSION"
+# Build the Docker image
+echo "Building Docker image with version $VERSION"
+docker build -t $IMAGE_NAME:$VERSION -t $IMAGE_NAME:$VERSION .
+# Stop and remove any existing container
+echo "Stopping existing container..."
+docker stop $DOCKER_IMAGE 2>/dev/null || true
+docker rm $DOCKER_IMAGE 2>/dev/null || true
+
+# Run the new container
+echo "Starting new container..."
+docker run -d --name $DOCKER_IMAGE -p 8091:8090 $IMAGE_NAME:$VERSION
+
+# Wait a moment for container to start
+sleep 5
+
+# Verify the container is running
+echo "Verifying container status..."
+if docker ps | grep $DOCKER_IMAGE; then
+    echo "✅ Container is running successfully"
+
+    # Optional: Test the health endpoint
+    echo "Testing health endpoint..."
+    sleep 5
+    if curl -f http://localhost:8091/home/health 2>/dev/null; then
+        echo "✅ Application health check passed"
+    else
+        echo "⚠️  Health check failed, but container is running"
+    fi
+else
+    echo "❌ Container failed to start"
+    echo "Container logs:"
+    docker logs $DOCKER_IMAGE 2>/dev/null || echo "No logs available"
+    exit 1
+fi
+
+echo "🎉 Docker deployment completed successfully!"
+'''
+            }
+        }
+        stage('build') {
+            when {
+                expression {
+                    params.ENVIRONMENT == 'dev'
+                }
+            }
+            steps {
+                sh '''
+                export JAVA_HOME=/Users/sb306x/.sdkman/candidates/java/current
+                ./jenkins-build-simple.sh
                 '''
             }
         }
-        
-        stage('Make Gradlew Executable') {
+        stage('Archive Version') {
             steps {
-                echo 'Making gradlew executable...'
-                sh 'chmod +x gradlew'
-            }
-        }
-        
-        stage('Clean') {
-            steps {
-                echo 'Cleaning previous builds...'
-                sh './gradlew clean'
-            }
-        }
-        
-        stage('Compile') {
-            steps {
-                echo 'Compiling the application...'
-                sh './gradlew compileJava'
-            }
-        }
-        
-        stage('Test') {
-            steps {
-                echo 'Running tests...'
-                sh './gradlew test'
-            }
-            post {
-                always {
-                    // Publish test results
-                    publishTestResults testResultsPattern: 'build/test-results/test/*.xml'
-                    
-                    // Archive test reports
-                    publishHTML([
-                        allowMissing: false,
-                        alwaysLinkToLastBuild: true,
-                        keepAll: true,
-                        reportDir: 'build/reports/tests/test',
-                        reportFiles: 'index.html',
-                        reportName: 'Test Report'
-                    ])
-                }
-            }
-        }
-        
-        stage('Build') {
-            steps {
-                echo 'Building the application...'
-                sh './gradlew build -x test'  // Skip tests since we ran them separately
-            }
-        }
-        
-        stage('Archive Artifacts') {
-            steps {
-                echo 'Archiving build artifacts...'
-                archiveArtifacts artifacts: 'build/libs/*.jar', fingerprint: true
-            }
-        }
-        
-        stage('Docker Build') {
-            when {
-                // Only build Docker image on main branch or when explicitly requested
-                anyOf {
-                    branch 'master'
-                    branch 'main'
-                    environment name: 'BUILD_DOCKER', value: 'true'
-                }
-            }
-            steps {
-                script {
-                    echo 'Building Docker image...'
-                    def image = docker.build("jenkins-demo:${env.BUILD_NUMBER}")
-                    
-                    // Tag as latest if on main branch
-                    if (env.BRANCH_NAME == 'master' || env.BRANCH_NAME == 'main') {
-                        image.tag('latest')
-                    }
-                }
+                // Archive the version file for next build
+                archiveArtifacts artifacts: 'version.txt', allowEmptyArchive: true
             }
         }
     }
-    
-    post {
-        always {
-            echo 'Pipeline completed!'
-            
-            // Clean workspace
-            cleanWs()
-        }
-        
-        success {
-            echo 'Pipeline succeeded! ✅'
-            
-            // Send success notification (uncomment if you have email/Slack configured)
-            // emailext (
-            //     subject: "✅ Build Success: ${env.JOB_NAME} - ${env.BUILD_NUMBER}",
-            //     body: "The build completed successfully.\n\nBuild URL: ${env.BUILD_URL}",
-            //     to: "${env.CHANGE_AUTHOR_EMAIL}"
-            // )
-        }
-        
-        failure {
-            echo 'Pipeline failed! ❌'
-            
-            // Send failure notification (uncomment if you have email/Slack configured)
-            // emailext (
-            //     subject: "❌ Build Failed: ${env.JOB_NAME} - ${env.BUILD_NUMBER}",
-            //     body: "The build failed. Please check the console output.\n\nBuild URL: ${env.BUILD_URL}",
-            //     to: "${env.CHANGE_AUTHOR_EMAIL}"
-            // )
-        }
-        
-        unstable {
-            echo 'Pipeline is unstable! ⚠️'
-        }
-    }
+
 }
