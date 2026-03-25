@@ -121,6 +121,22 @@ echo "🎉 Docker deployment completed successfully!"
                 archiveArtifacts artifacts: 'version.txt', allowEmptyArchive: true
             }
         }
+        post {
+            success {
+                emailext {
+                    to: 'sriram.b@equalexperts.com',
+                    subject: 'Build success : ${JOB_NAME}',
+                    body : 'Build completed successfully. Build number: ${BUILD_NUMBER} Version number: ${VERSION}'
+                }
+            }
+             failure {
+                            emailext {
+                                to: 'sriram.b@equalexperts.com',
+                                subject: 'Build success : ${JOB_NAME}',
+                                body : 'Build completed successfully. Build number: ${BUILD_NUMBER} Version number: ${VERSION}'
+                }
+             }
+        }
     }
 
 }
